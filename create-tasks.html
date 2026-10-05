@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Create Tasks</title>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <style>
+    :root {
+      --bg: #f6f7f9; --card: #fff; --text: #1f2328; --muted: #656d76; --border: #d0d7de;
+      --accent: #2563eb; --ok: #16a34a; --err: #dc2626; --warn: #d97706;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #0d1117; --card: #161b22; --text: #e6edf3; --muted: #8d96a0; --border: #30363d; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, sans-serif; }
+    .wrap { max-width: 1000px; margin: 0 auto; padding: 24px 16px; }
+    h1 { font-size: 20px; margin: 0 0 16px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+    label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    input, textarea { width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px;
+      background: var(--bg); color: var(--text); font: inherit; }
+    textarea { min-height: 220px; font-family: ui-monospace, monospace; font-size: 13px; }
+    .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    button { padding: 8px 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--card);
+      color: var(--text); cursor: pointer; font: inherit; }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button.danger { color: var(--err); }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { font-size: 12px; color: var(--muted); font-weight: 600; }
+    td.num { color: var(--muted); width: 40px; }
+    .desc { color: var(--muted); font-size: 12px; }
+    .st { font-size: 12px; font-weight: 600; white-space: nowrap; }
+    .st.created { color: var(--ok); } .st.failed { color: var(--err); } .st.sending { color: var(--warn); }
+    .st.pending { color: var(--muted); font-weight: 400; }
+    .err { color: var(--err); font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+    .bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin: 8px 0; }
+    .bar > div { height: 100%; background: var(--ok); transition: width .2s; }
+    .msg { margin-top: 8px; }
+  </style>
+</head>
+<body>
+<div id="app" class="wrap">
+  <h1>Create Tasks</h1>
+
+  <div class="card">
+    <div class="grid">
+      <div style="grid-column: 1 / -1">
+        <label>API URL</label>
+        <input v-model.trim="apiUrl">
+      </div>
+      <div style="grid-column: 1 / -1">
+        <label>Token</label>
+        <input v-model.trim="token" type="password" placeholder="Bearer token" autocomplete="off">
+        <div class="hint">Kept only in this tab, never saved.</div>
+      </div>
+      <div>
+        <label>Project ID</label>
+        <input v-model.number="projectId" type="number">
+      </div>
+      <div>
+        <label>Assignee IDs</label>
+        <input v-model="assigneeText" placeholder="7, 12">
+        <div class="hint">Comma-separated</div>
+      </div>
+      <div>
+        <label>First sort</label>
+        <input v-model.number="firstSort" type="number">
+      </div>
+      <div>
+        <label>Status ID</label>
+        <input v-model.number="statusId" type="number">
+      </div>
+      <div>
+        <label>Priority ID</label>
+        <input v-model.number="priorityId" type="number">
+      </div>
+      <div>
+        <label>Delay between tasks (ms)</label>
+        <input v-model.number="delayMs" type="number">
+      </div>
+      <div>
+        <label>Batch size</label>
+        <input v-model.number="batchSize" type="number">
+      </div>
+      <div>
+        <label>Pause between batches (min)</label>
+        <input v-model.number="batchPauseMin" type="number">
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <label>Tasks — one per line: <b>Title. Description.</b></label>
+    <textarea v-model="tasksText" :disabled="running"
+      placeholder="Build login. Email and password form.&#10;Build logout. Clear the session."></textarea>
+    <div class="hint">{{ tasks.length }} tasks</div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <button class="primary" :disabled="!canStart" @click="start(1)">Create all</button>
+      <button v-if="failedIndex" :disabled="running || !canStart" @click="start(failedIndex)">
+        Resume from #{{ failedIndex }}
+      </button>
+      <button v-if="running" class="danger" @click="stop">Stop</button>
+      <button :disabled="running" @click="reset">Clear results</button>
+    </div>
+    <div v-if="problem" class="err msg">{{ problem }}</div>
+    <template v-if="results.length">
+      <div class="bar"><div :style="{ width: progress + '%' }"></div></div>
+      <div class="hint">{{ createdCount }} / {{ tasks.length }} created</div>
+    </template>
+    <div v-if="status" class="msg">{{ status }}</div>
+  </div>
+
+  <div class="card" v-if="tasks.length">
+    <table>
+      <thead><tr><th>#</th><th>Sort</th><th>Task</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr v-for="(t, i) in tasks" :key="i">
+          <td class="num">{{ i + 1 }}</td>
+          <td class="num">{{ firstSort + i }}</td>
+          <td>
+            <div>{{ t.title }}</div>
+            <div class="desc" v-if="t.description">{{ t.description }}</div>
+            <div class="err" v-if="results[i]?.error">{{ results[i].error }}</div>
+          </td>
+          <td><span class="st" :class="results[i]?.state || 'pending'">{{ results[i]?.state || 'pending' }}</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const { createApp } = Vue;
+
+const SAVED_KEY = 'create-tasks-settings';
+const SAVED_FIELDS = ['apiUrl', 'projectId', 'assigneeText', 'firstSort', 'statusId', 'priorityId',
+  'delayMs', 'batchSize', 'batchPauseMin', 'tasksText'];
+
+function loadSaved() {
+  try { return JSON.parse(localStorage.getItem(SAVED_KEY)) || {}; } catch { return {}; }
+}
+
+// Split "Title. Description." at the first ". "
+function parse(line) {
+  const i = line.indexOf('. ');
+  if (i === -1) return { title: line.replace(/\.$/, ''), description: '' };
+  return { title: line.slice(0, i), description: line.slice(i + 2) };
+}
+
+// Wrap plain text in the editor's doc format
+function toDoc(text) {
+  return {
+    type: 'doc',
+    content: [{ type: 'paragraph', attrs: { textAlign: null }, content: text ? [{ type: 'text', text }] : [] }],
+  };
+}
+
+createApp({
+  data() {
+    return {
+      apiUrl: 'https://tasks-api.echop.us/api/tasks',
+      token: '',
+      projectId: 65,
+      assigneeText: '7',
+      firstSort: 1,
+      statusId: 1,
+      priorityId: 3,
+      delayMs: 300,
+      batchSize: 30,
+      batchPauseMin: 2,
+      tasksText: '',
+      results: [],
+      running: false,
+      stopRequested: false,
+      failedIndex: null,
+      status: '',
+      ...loadSaved(),
+    };
+  },
+  computed: {
+    tasks() {
+      return this.tasksText.split(/\r?\n/).map(l => l.trim()).filter(Boolean).map(parse);
+    },
+    assigneeIds() {
+      return this.assigneeText.split(',').map(s => s.trim()).filter(Boolean).map(Number);
+    },
+    problem() {
+      if (!this.token) return 'Enter your token.';
+      if (!Number.isInteger(this.projectId) || this.projectId <= 0) return 'Project ID must be a number.';
+      if (this.assigneeIds.some(n => !Number.isInteger(n))) return 'Assignee IDs must be numbers separated by commas.';
+      if (!this.tasks.length) return 'Add at least one task.';
+      return '';
+    },
+    canStart() { return !this.running && !this.problem; },
+    createdCount() { return this.results.filter(r => r?.state === 'created').length; },
+    progress() { return this.tasks.length ? (this.createdCount / this.tasks.length) * 100 : 0; },
+  },
+  watch: {
+    // Remember settings (not the token) between visits
+    ...Object.fromEntries(SAVED_FIELDS.map(f => [f, function () { this.save(); }])),
+  },
+  methods: {
+    save() {
+      try {
+        localStorage.setItem(SAVED_KEY, JSON.stringify(Object.fromEntries(SAVED_FIELDS.map(f => [f, this[f]]))));
+      } catch {}
+    },
+    sleep(ms) {
+      return new Promise(resolve => {
+        const end = Date.now() + ms;
+        const tick = () => (this.stopRequested || Date.now() >= end) ? resolve() : setTimeout(tick, 200);
+        tick();
+      });
+    },
+    reset() {
+      this.results = [];
+      this.failedIndex = null;
+      this.status = '';
+    },
+    stop() {
+      this.stopRequested = true;
+      this.status = 'Stopping…';
+    },
+    async start(from) {
+      const total = this.tasks.length;
+      const msg = `Create ${total - from + 1} task(s) in project ${this.projectId} assigned to [${this.assigneeIds.join(', ')}]?`;
+      if (!confirm(msg)) return;
+
+      this.running = true;
+      this.stopRequested = false;
+      this.failedIndex = null;
+      this.results = this.results.slice(0, total);
+
+      for (let n = from; n <= total; n++) {
+        if (this.stopRequested) { this.failedIndex = n; this.status = `Stopped. Resume from #${n}.`; break; }
+
+        const { title, description } = this.tasks[n - 1];
+        const body = {
+          project_id: this.projectId,
+          task_status_id: this.statusId,
+          task_priority_id: this.priorityId,
+          category: null,
+          due_date: null,
+          branch_name: null,
+          assignee_ids: this.assigneeIds,
+          sprint_id: null,
+          epic_id: null,
+          title,
+          description: toDoc(description),
+          sort: this.firstSort + n - 1,
+        };
+
+        this.results[n - 1] = { state: 'sending' };
+        this.status = `Creating #${n}: ${title}`;
+
+        try {
+          const res = await fetch(this.apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: `Bearer ${this.token}` },
+            body: JSON.stringify(body),
+          });
+          if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 500)}`);
+          this.results[n - 1] = { state: 'created' };
+        } catch (e) {
+          this.results[n - 1] = { state: 'failed', error: e.message };
+          this.failedIndex = n;
+          this.status = `#${n} failed. Fix the issue, then resume from #${n}.`;
+          break;
+        }
+
+        await this.sleep(this.delayMs);
+
+        const done = n - from + 1;
+        if (this.batchSize > 0 && done % this.batchSize === 0 && n < total) {
+          this.status = `${done} created, waiting ${this.batchPauseMin} min before next batch…`;
+          await this.sleep(this.batchPauseMin * 60 * 1000);
+        }
+      }
+
+      if (!this.failedIndex) this.status = 'Done.';
+      this.running = false;
+    },
+  },
+}).mount('#app');
+</script>
+</body>
+</html>
