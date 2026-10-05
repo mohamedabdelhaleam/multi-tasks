@@ -56,7 +56,7 @@
       </div>
       <div style="grid-column: 1 / -1">
         <label>Token</label>
-        <input v-model.trim="token" type="password" placeholder="Bearer token" autocomplete="off">
+        <input v-model.trim="token" type="password" placeholder="Bearer token (optional)" autocomplete="off">
         <div class="hint">Kept only in this tab, never saved.</div>
       </div>
       <div>
@@ -198,7 +198,6 @@ createApp({
       return this.assigneeText.split(',').map(s => s.trim()).filter(Boolean).map(Number);
     },
     problem() {
-      if (!this.token) return 'Enter your token.';
       if (!Number.isInteger(this.projectId) || this.projectId <= 0) return 'Project ID must be a number.';
       if (this.assigneeIds.some(n => !Number.isInteger(n))) return 'Assignee IDs must be numbers separated by commas.';
       if (!this.tasks.length) return 'Add at least one task.';
@@ -269,7 +268,11 @@ createApp({
         try {
           const res = await fetch(this.apiUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: `Bearer ${this.token}` },
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+              ...(this.token && { Authorization: `Bearer ${this.token}` }),
+            },
             body: JSON.stringify(body),
           });
           if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 500)}`);
