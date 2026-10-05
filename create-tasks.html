@@ -167,7 +167,7 @@ function toDoc(text) {
 createApp({
   data() {
     return {
-      apiUrl: 'https://tasks-api.echop.us/api/tasks',
+      apiUrl: '/api/tasks', // proxied to tasks-api.echop.us by vercel.json (avoids CORS)
       token: '',
       projectId: 65,
       assigneeText: '7',
@@ -185,6 +185,10 @@ createApp({
       status: '',
       ...loadSaved(),
     };
+  },
+  created() {
+    // Older saved settings point straight at the API, which the browser blocks (CORS)
+    if (this.apiUrl === 'https://tasks-api.echop.us/api/tasks') this.apiUrl = '/api/tasks';
   },
   computed: {
     tasks() {

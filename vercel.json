@@ -1,0 +1,6 @@
+{
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://tasks-api.echop.us/api/:path*" },
+    { "source": "/", "destination": "/create-tasks.html" }
+  ]
+}
